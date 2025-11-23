@@ -20,14 +20,39 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
-const upload = multer(); // in-memory storage
+
+// ===== Multer: in-memory storage + size limit (e.g. 4MB) =====
+const upload = multer({
+  limits: {
+    fileSize: 4 * 1024 * 1024, // 4MB — Vercel limit এর নিচে রাখলাম
+  },
+});
 
 // ---------- Middleware ----------
+
+// Strong CORS config – সব origin allow + preflight handle
 app.use(
   cors({
-    origin: "*", // আলাদা frontend ডোমেইন থেকেও কল করা যাবে
+    origin: "*", // আলাদা frontend ডোমেইন থেকেও কল করা যাবে (localhost:5173 সহ)
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// extra safety – manual headers (কিছু ক্ষেত্রে কাজে লাগে)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -225,6 +250,17 @@ app.get("/api/health-data", async (req, res) => {
 function cryptoRandom() {
   return Math.random().toString(36).slice(2);
 }
+
+// ---------- Multer error handler (size ইত্যাদি) ----------
+app.use((err, req, res, next) => {
+  if (err && err.code === "LIMIT_FILE_SIZE") {
+    console.error("Multer file size limit reached");
+    return res
+      .status(413)
+      .json({ success: false, message: "PDF too large (max 4MB)" });
+  }
+  next(err);
+});
 
 // ---------- Local dev server (for localhost) ----------
 const PORT = process.env.PORT || 8000;
