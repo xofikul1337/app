@@ -4,7 +4,7 @@ const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 
 // ===== FIXED: FRONTEND ORIGIN HARDCODED =====
-const FRONTEND_ORIGIN = "http://localhost:5173";  // hardcoded!
+const FRONTEND_ORIGIN = "https://xofikul-thor.vercel.app/";  // hardcoded!
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
