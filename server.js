@@ -1,19 +1,27 @@
-// server.js  (root of backend repo)
-
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
+const crypto = require("crypto");
+const path = require("path");
 
-// ======== Supabase credentials from ENV (Vercel) ========
-// এগুলো Vercel-এর Environment Variables এ সেট করবে
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const THOR_USER_ID = process.env.THOR_USER_ID; // training_workouts-এর user_id
+const THOR_USER_ID = process.env.THOR_USER_ID;
+
+const THOR_API_KEY = process.env.THOR_API_KEY || null;
+
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.warn(
-    "⚠️ SUPABASE_URL or SUPABASE_SERVICE_KEY is missing. Set them in Vercel Environment Variables."
+    "Supabase key missing"
+  );
+}
+
+if (!THOR_API_KEY) {
+  console.warn(
+    "thor key is not set"
   );
 }
 
@@ -21,30 +29,25 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 const app = express();
 
-// ===== Multer: in-memory storage + size limit (e.g. 4MB) =====
 const upload = multer({
   limits: {
-    fileSize: 4 * 1024 * 1024, // 4MB — Vercel limit এর নিচে রাখলাম
+    fileSize: 4 * 1024 * 1024,
   },
 });
 
-// ---------- Middleware ----------
-
-// Strong CORS config – সব origin allow + preflight handle
 app.use(
   cors({
-    origin: "*", // আলাদা frontend ডোমেইন থেকেও কল করা যাবে (localhost:5173 সহ)
+    origin: ALLOWED_ORIGIN,
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-thor-api-key"],
   })
 );
 
-// extra safety – manual headers (কিছু ক্ষেত্রে কাজে লাগে)
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.header(
     "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-thor-api-key"
   );
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") {
@@ -56,13 +59,24 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ---------- Simple health check ----------
+function requireApiKey(req, res, next) {
+  if (!THOR_API_KEY) {
+    return next();
+  }
+
+  const clientKey = req.headers["x-thor-api-key"];
+  if (!clientKey || clientKey !== THOR_API_KEY) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  next();
+}
+
 app.get("/", (req, res) => {
   res.json({ ok: true, message: "THOR backend running" });
 });
 
-// ---------- 1) Daily Health Log ----------
-app.post("/api/health", upload.none(), async (req, res) => {
+app.post("/api/health", requireApiKey, upload.none(), async (req, res) => {
   try {
     const { weight, body_fat, energy, mood, libido } = req.body;
 
@@ -70,9 +84,9 @@ app.post("/api/health", upload.none(), async (req, res) => {
       log_date: new Date().toISOString().slice(0, 10),
       weight_lbs: weight ? parseFloat(weight) : null,
       body_fat_percent: body_fat ? parseFloat(body_fat) : null,
-      energy_level: parseInt(energy, 10),
-      mood_score: parseInt(mood, 10),
-      libido_score: parseInt(libido, 10),
+      energy_level: energy != null ? parseInt(energy, 10) : null,
+      mood_score: mood != null ? parseInt(mood, 10) : null,
+      libido_score: libido != null ? parseInt(libido, 10) : null,
     };
 
     const { error } = await supabase.from("daily_health_logs").insert([data]);
@@ -88,8 +102,7 @@ app.post("/api/health", upload.none(), async (req, res) => {
   }
 });
 
-// ---------- 2) Training Workout Log ----------
-app.post("/api/training", upload.none(), async (req, res) => {
+app.post("/api/training", requireApiKey, upload.none(), async (req, res) => {
   try {
     const {
       workout_name,
@@ -109,8 +122,10 @@ app.post("/api/training", upload.none(), async (req, res) => {
       duration_minutes: duration_minutes
         ? parseInt(duration_minutes, 10)
         : null,
-      intensity_level: parseInt(intensity_level, 10),
-      recovery_score: parseInt(recovery_score, 10),
+      intensity_level:
+        intensity_level != null ? parseInt(intensity_level, 10) : null,
+      recovery_score:
+        recovery_score != null ? parseInt(recovery_score, 10) : null,
       volume_adjustment_percent: volume_adjustment_percent
         ? parseInt(volume_adjustment_percent, 10)
         : 100,
@@ -130,15 +145,14 @@ app.post("/api/training", upload.none(), async (req, res) => {
   }
 });
 
-// ---------- 3) Injection Log ----------
-app.post("/api/injection", upload.none(), async (req, res) => {
+app.post("/api/injection", requireApiKey, upload.none(), async (req, res) => {
   try {
     const { compound_name, dose_amount, injection_site } = req.body;
 
     const data = {
       injection_date: new Date().toISOString().slice(0, 10),
       compound_name,
-      dose_amount: parseFloat(dose_amount),
+      dose_amount: dose_amount != null ? parseFloat(dose_amount) : null,
       injection_site,
     };
 
@@ -157,10 +171,10 @@ app.post("/api/injection", upload.none(), async (req, res) => {
   }
 });
 
-// ---------- 4) Lab PDF Upload ----------
 app.post(
   "/api/lab-upload",
-  upload.single("file"), // React FormData-এর 'file' field
+  requireApiKey,
+  upload.single("file"),
   async (req, res) => {
     try {
       const { lab_date } = req.body;
@@ -178,9 +192,25 @@ app.post(
           .json({ success: false, message: "Only PDF allowed" });
       }
 
-      const filePath = `labs/${cryptoRandom()}_${file.originalname}`;
+      if (!lab_date) {
+        return res
+          .status(400)
+          .json({ success: false, message: "lab_date is required" });
+      }
 
-      // Supabase storage bucket 'files' এ upload
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(lab_date)) {
+        return res.status(400).json({
+          success: false,
+          message: "lab_date must be in YYYY-MM-DD format",
+        });
+      }
+
+      const safeOriginalName = path
+        .basename(file.originalname)
+        .replace(/[^\w.\-]/g, "_");
+
+      const filePath = `labs/${cryptoRandom()}_${safeOriginalName}`;
+
       const { error: uploadError } = await supabase.storage
         .from("files")
         .upload(filePath, file.buffer, {
@@ -221,8 +251,7 @@ app.post(
   }
 );
 
-// ---------- 5) Health data for chart ----------
-app.get("/api/health-data", async (req, res) => {
+app.get("/api/health-data", requireApiKey, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("daily_health_logs")
@@ -246,12 +275,10 @@ app.get("/api/health-data", async (req, res) => {
   }
 });
 
-// ---------- helper: random string ----------
 function cryptoRandom() {
-  return Math.random().toString(36).slice(2);
+  return crypto.randomBytes(16).toString("hex");
 }
 
-// ---------- Multer error handler (size ইত্যাদি) ----------
 app.use((err, req, res, next) => {
   if (err && err.code === "LIMIT_FILE_SIZE") {
     console.error("Multer file size limit reached");
@@ -262,17 +289,12 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-// ---------- Local dev server (for localhost) ----------
 const PORT = process.env.PORT || 8000;
 
-// এই if ব্লক থাকার জন্য:
-// - লোকালিতে `node server.js` চালালে listen করবে
-// - Vercel যখন serverless হিসেবে লোড করবে তখন শুধু module.exports ব্যবহার করবে, listen করবে না
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`THOR Node backend running at http://localhost:${PORT}`);
   });
 }
 
-// Vercel @vercel/node এর জন্য Express app export
 module.exports = app;
