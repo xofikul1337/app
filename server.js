@@ -1,3 +1,5 @@
+// index.js (বা যেটা main server file হিসেবে ব্যবহার করো)
+
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -7,7 +9,7 @@ const { createClient } = require("@supabase/supabase-js");
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const THOR_USER_ID = process.env.THOR_USER_ID;
-const THOR_FRONTEND_ORIGIN = process.env.THOR_FRONTEND_ORIGIN; // e.g. https://thor-frontend.vercel.app
+const THOR_FRONTEND_ORIGIN = process.env.THOR_FRONTEND_ORIGIN; // e.g. http://localhost:5173 or https://your-frontend.vercel.app
 const THOR_API_KEY = process.env.THOR_API_KEY; // shared secret between frontend & backend
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -16,7 +18,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 if (!THOR_FRONTEND_ORIGIN) {
   console.warn(
-    "⚠️ THOR_FRONTEND_ORIGIN is not set. CORS is currently wide open in dev. Set this in production!"
+    "⚠️ THOR_FRONTEND_ORIGIN is not set. Using default http://localhost:5173 for dev. Set this in production!"
   );
 }
 
@@ -33,29 +35,22 @@ const upload = multer({
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
 });
 
-// ===== CORS LOCKDOWN =====
+// ===== CORS CONFIG =====
 app.use(
   cors({
-    origin: THOR_FRONTEND_ORIGIN || "*", // set THOR_FRONTEND_ORIGIN in prod
+    origin: THOR_FRONTEND_ORIGIN || "http://localhost:5173",
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-API-Key",
+    ],
   })
 );
 
-// OPTIONS preflight handler (respecting CORS)
-app.use((req, res, next) => {
-  res.header(
-    "Access-Control-Allow-Origin",
-    THOR_FRONTEND_ORIGIN || "*"
-  );
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key"
-  );
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
-});
+// Preflight support
+app.options("*", cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -81,10 +76,10 @@ function requireApiKey(req, res, next) {
 // ===== Routes =====
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "THOR backend running" });
+  res.json({ ok: true, message: "THOR Node backend running" });
 });
 
-// All sensitive routes below require API key
+// Daily health log
 app.post("/api/health", requireApiKey, upload.none(), async (req, res) => {
   try {
     const { weight, body_fat, energy, mood, libido } = req.body;
@@ -109,6 +104,7 @@ app.post("/api/health", requireApiKey, upload.none(), async (req, res) => {
   }
 });
 
+// Training log
 app.post("/api/training", requireApiKey, upload.none(), async (req, res) => {
   try {
     const {
@@ -149,6 +145,7 @@ app.post("/api/training", requireApiKey, upload.none(), async (req, res) => {
   }
 });
 
+// Injection log
 app.post("/api/injection", requireApiKey, upload.none(), async (req, res) => {
   try {
     const { compound_name, dose_amount, injection_site } = req.body;
@@ -173,6 +170,7 @@ app.post("/api/injection", requireApiKey, upload.none(), async (req, res) => {
   }
 });
 
+// Lab PDF upload
 app.post(
   "/api/lab-upload",
   requireApiKey,
@@ -234,6 +232,7 @@ app.post(
   }
 );
 
+// Health data fetch
 app.get("/api/health-data", requireApiKey, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -274,6 +273,7 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 8000;
+
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`THOR Node backend running at http://localhost:${PORT}`);
