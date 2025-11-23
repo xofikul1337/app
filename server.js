@@ -4,12 +4,12 @@ const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 
 // ===== FIXED: FRONTEND ORIGIN HARDCODED =====
-const FRONTEND_ORIGIN = "https://xofikul-thor.vercel.app/";  // hardcoded!
+const FRONTEND_ORIGIN = "https://xofikul-thor.vercel.app";  // <-- slash বাদ
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const THOR_USER_ID = process.env.THOR_USER_ID;
-const THOR_API_KEY = "xofikul"
+const THOR_API_KEY = "xofikul";
 
 // Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -20,7 +20,7 @@ const upload = multer({
   limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
 });
 
-// ===== CLEAN CORS (NO ENV, NO AUTO HEADERS) =====
+// ===== CLEAN CORS =====
 app.use(
   cors({
     origin: FRONTEND_ORIGIN,
@@ -65,10 +65,14 @@ app.post("/api/health", requireApiKey, upload.none(), async (req, res) => {
 
     const { error } = await supabase.from("daily_health_logs").insert([data]);
 
-    if (error) return res.status(500).json({ success: false, message: "DB error" });
+    if (error) {
+      console.error("Supabase error /api/health:", error);
+      return res.status(500).json({ success: false, message: "DB error" });
+    }
 
     return res.json({ success: true, message: "Health logged!" });
   } catch (err) {
+    console.error("Error /api/health:", err);
     return res.status(500).json({ success: false, message: "Failed" });
   }
 });
@@ -100,10 +104,14 @@ app.post("/api/training", requireApiKey, upload.none(), async (req, res) => {
 
     const { error } = await supabase.from("training_workouts").insert([data]);
 
-    if (error) return res.status(500).json({ success: false, message: "DB error" });
+    if (error) {
+      console.error("Supabase error /api/training:", error);
+      return res.status(500).json({ success: false, message: "DB error" });
+    }
 
     return res.json({ success: true, message: "Workout logged!" });
   } catch (err) {
+    console.error("Error /api/training:", err);
     return res.status(500).json({ success: false, message: "Failed" });
   }
 });
@@ -122,10 +130,14 @@ app.post("/api/injection", requireApiKey, upload.none(), async (req, res) => {
 
     const { error } = await supabase.from("protocol_injections").insert([data]);
 
-    if (error) return res.status(500).json({ success: false, message: "DB error" });
+    if (error) {
+      console.error("Supabase error /api/injection:", error);
+      return res.status(500).json({ success: false, message: "DB error" });
+    }
 
     return res.json({ success: true, message: "Injection logged!" });
   } catch (err) {
+    console.error("Error /api/injection:", err);
     return res.status(500).json({ success: false, message: "Failed" });
   }
 });
@@ -150,21 +162,27 @@ app.post(
         .from("files")
         .upload(filePath, file.buffer, { contentType: "application/pdf" });
 
-      if (uploadResult.error)
+      if (uploadResult.error) {
+        console.error("Supabase storage error:", uploadResult.error);
         return res.status(500).json({ success: false, message: "Upload failed" });
+      }
 
-      const { data: { publicUrl } } =
-        supabase.storage.from("files").getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("files").getPublicUrl(filePath);
 
       const insertResult = await supabase
         .from("lab_results")
         .insert([{ lab_date, pdf_url: publicUrl }]);
 
-      if (insertResult.error)
+      if (insertResult.error) {
+        console.error("Supabase error lab_results insert:", insertResult.error);
         return res.status(500).json({ success: false, message: "DB error" });
+      }
 
       return res.json({ success: true, url: publicUrl, message: "Lab uploaded!" });
     } catch (err) {
+      console.error("Error /api/lab-upload:", err);
       return res.status(500).json({ success: false, message: "Failed" });
     }
   }
@@ -178,11 +196,14 @@ app.get("/api/health-data", requireApiKey, async (req, res) => {
       .select("*")
       .order("log_date", { ascending: true });
 
-    if (error)
+    if (error) {
+      console.error("Supabase error /api/health-data:", error);
       return res.status(500).json({ success: false, message: "DB error" });
+    }
 
     return res.json(data || []);
   } catch (err) {
+    console.error("Error /api/health-data:", err);
     return res.status(500).json({ success: false, message: "Failed" });
   }
 });
