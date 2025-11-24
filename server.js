@@ -9,7 +9,7 @@ const FRONTEND_ORIGIN = "https://xofikul-thor.vercel.app";  // <-- slash বা�
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const THOR_USER_ID = process.env.THOR_USER_ID;
-const THOR_API_KEY = "xofikul";
+const THOR_API_KEY = process.env.KEY_DATA;
 
 // Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
