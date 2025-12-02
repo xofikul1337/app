@@ -2,7 +2,7 @@
 
 const { createClient } = require("@supabase/supabase-js");
 
-// 🔐 Supabase backend client – use service role key (NEVER expose this to frontend)
+// 🔐 Supabase backend client – service role key (backend only)
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
   try {
     let body = req.body;
 
-    // In case req.body is not auto-parsed, fallback to manual JSON parse
+    // If body not parsed (sometimes on Vercel), manual parse fallback
     if (!body || Object.keys(body).length === 0) {
       let raw = "";
       for await (const chunk of req) {
@@ -45,20 +45,34 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Support both single object and array payloads
     const payload = Array.isArray(body) ? body : [body];
 
-    // Map fields to your `health_data` table
-    const rows = payload.map((item) => ({
-      date: item.date, // e.g. "2025-12-02"
-      weight: item.weight,
-      body_fat_percentage: item.body_fat_percentage,
-      energy: item.energy,
-      sleep_quality: item.sleep_quality,
-      libido: item.libido,
-      mental_clarity: item.mental_clarity,
-      mood: item.mood,
-    }));
+    const rows = [];
+
+    for (const item of payload) {
+      // 🔑 User mapping: expect uid in body
+      const userId = item.user_id || item.uid || item.id;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Missing user_id (or uid/id) in payload. Please include your THOR User UID.",
+        });
+      }
+
+      rows.push({
+        user_id: userId, // 👈 এখানে auth UID বসবে
+        date: item.date,
+        weight: item.weight,
+        body_fat_percentage: item.body_fat_percentage,
+        energy: item.energy,
+        sleep_quality: item.sleep_quality,
+        libido: item.libido,
+        mental_clarity: item.mental_clarity,
+        mood: item.mood,
+      });
+    }
 
     const { data, error } = await supabase.from("health_data").insert(rows);
 
