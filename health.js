@@ -41,7 +41,8 @@ module.exports = async (req, res) => {
     }
 
     const payload = Array.isArray(body) ? body : [body];
-    const rows = [];
+    const rowsToInsert = [];
+    let duplicateCount = 0;
 
     for (const item of payload) {
       const userId = item.user_id || item.uid || item.id;
@@ -54,7 +55,36 @@ module.exports = async (req, res) => {
         });
       }
 
-      rows.push({
+      if (!item.date) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing date in payload.",
+        });
+      }
+
+      // Check if entry already exists for this user + date
+      const { data: existing, error: checkError } = await supabase
+        .from("health_data")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("date", item.date)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== "PGRST116") {
+        // PGRST116 = no rows found; that's fine
+        console.error("[health.js] Select error:", checkError);
+        return res.status(500).json({
+          success: false,
+          error: "Error checking existing entry.",
+        });
+      }
+
+      if (existing) {
+        duplicateCount += 1;
+        continue;
+      }
+
+      rowsToInsert.push({
         user_id: userId,
         date: item.date,
         weight: item.weight,
@@ -67,26 +97,35 @@ module.exports = async (req, res) => {
       });
     }
 
-    const { data, error } = await supabase.from("health_data").insert(rows);
-
-    if (error) {
-      let msg = error.message || "Insert failed";
-
-      // Postgres unique violation code: 23505
-      if (error.code === "23505") {
-        msg =
-          "Entry for this user and date already exists. Only one entry per day is allowed.";
-      }
-
+    // If everything was duplicate
+    if (rowsToInsert.length === 0) {
       return res.status(400).json({
         success: false,
-        error: msg,
+        error:
+          duplicateCount > 0
+            ? "Entry for this user and date already exists. Only one entry per day is allowed."
+            : "No valid rows to insert.",
+      });
+    }
+
+    // Insert only non-duplicate rows and return actual inserted count
+    const { data, error } = await supabase
+      .from("health_data")
+      .insert(rowsToInsert)
+      .select();
+
+    if (error) {
+      console.error("[health.js] Supabase Insert Error:", error);
+      return res.status(400).json({
+        success: false,
+        error: error.message || "Insert failed",
       });
     }
 
     return res.status(201).json({
       success: true,
-      inserted: data ? data.length : 0,
+      inserted: Array.isArray(data) ? data.length : 0,
+      duplicates_skipped: duplicateCount,
     });
   } catch (err) {
     console.error("[health.js] Server Error:", err);
