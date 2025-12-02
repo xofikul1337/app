@@ -1,8 +1,5 @@
-// health.js
-
 const { createClient } = require("@supabase/supabase-js");
 
-// 🔐 Supabase backend client – uses SERVICE ROLE KEY (backend only)
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_KEY;
 
@@ -15,7 +12,6 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 module.exports = async (req, res) => {
-  // Only allow POST requests
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res
@@ -26,16 +22,11 @@ module.exports = async (req, res) => {
   try {
     let body = req.body;
 
-    // 🧪 Debug: প্রথমেই log করে দেখি কী আসছে
-    console.log("[health.js] Raw req.body:", JSON.stringify(body));
-
-    // If body not parsed → manual parse fallback
     if (!body || Object.keys(body).length === 0) {
       let raw = "";
       for await (const chunk of req) {
         raw += chunk;
       }
-      console.log("[health.js] Raw stream body:", raw);
       if (raw) {
         try {
           body = JSON.parse(raw);
@@ -49,16 +40,10 @@ module.exports = async (req, res) => {
       }
     }
 
-    console.log("[health.js] Final parsed body:", JSON.stringify(body));
-
-    // Support array OR single JSON
     const payload = Array.isArray(body) ? body : [body];
     const rows = [];
 
     for (const item of payload) {
-      console.log("[health.js] Processing item:", JSON.stringify(item));
-
-      // 🔑 Require user_id field from body (user_id / uid / id)
       const userId = item.user_id || item.uid || item.id;
 
       if (!userId) {
@@ -85,10 +70,17 @@ module.exports = async (req, res) => {
     const { data, error } = await supabase.from("health_data").insert(rows);
 
     if (error) {
-      console.error("[health.js] Supabase Insert Error:", error);
+      let msg = error.message || "Insert failed";
+
+      // Postgres unique violation code: 23505
+      if (error.code === "23505") {
+        msg =
+          "Entry for this user and date already exists. Only one entry per day is allowed.";
+      }
+
       return res.status(400).json({
         success: false,
-        error: error.message || "Insert failed",
+        error: msg,
       });
     }
 
