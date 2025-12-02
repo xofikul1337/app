@@ -54,13 +54,6 @@ module.exports = async (req, res) => {
         });
       }
 
-      if (!item.date) {
-        return res.status(400).json({
-          success: false,
-          error: "Missing date in payload.",
-        });
-      }
-
       rows.push({
         user_id: userId,
         date: item.date,
@@ -74,16 +67,12 @@ module.exports = async (req, res) => {
       });
     }
 
-    // insert + select so we know exactly how many rows inserted
-    const { data, error } = await supabase
-      .from("health_data")
-      .insert(rows)
-      .select();
+    const { data, error } = await supabase.from("health_data").insert(rows);
 
     if (error) {
       let msg = error.message || "Insert failed";
 
-      // 23505 = unique violation (same user_id + date)
+      // Postgres unique violation code: 23505
       if (error.code === "23505") {
         msg =
           "Entry for this user and date already exists. Only one entry per day is allowed.";
@@ -97,7 +86,7 @@ module.exports = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      inserted: Array.isArray(data) ? data.length : 0,
+      inserted: data ? data.length : 0,
     });
   } catch (err) {
     console.error("[health.js] Server Error:", err);
