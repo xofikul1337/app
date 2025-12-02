@@ -1,3 +1,4 @@
+// health.js
 
 const { createClient } = require("@supabase/supabase-js");
 
@@ -25,16 +26,12 @@ module.exports = async (req, res) => {
   try {
     let body = req.body;
 
-    // 🧪 Debug: প্রথমেই log করে দেখি কী আসছে
-    console.log("[health.js] Raw req.body:", JSON.stringify(body));
-
     // If body not parsed → manual parse fallback
     if (!body || Object.keys(body).length === 0) {
       let raw = "";
       for await (const chunk of req) {
         raw += chunk;
       }
-      console.log("[health.js] Raw stream body:", raw);
       if (raw) {
         try {
           body = JSON.parse(raw);
@@ -48,16 +45,12 @@ module.exports = async (req, res) => {
       }
     }
 
-    console.log("[health.js] Final parsed body:", JSON.stringify(body));
-
     // Support array OR single JSON
     const payload = Array.isArray(body) ? body : [body];
     const rows = [];
 
     for (const item of payload) {
-      console.log("[health.js] Processing item:", JSON.stringify(item));
-
-      // 🔑 Require user_id field from body (user_id / uid / id)
+      // 🔑 Require user_id field from body
       const userId = item.user_id || item.uid || item.id;
 
       if (!userId) {
@@ -81,9 +74,17 @@ module.exports = async (req, res) => {
       });
     }
 
+    // Insert rows → rely on unique constraint (user_id + date)
     const { data, error } = await supabase.from("health_data").insert(rows);
 
     if (error) {
+      // Custom error for duplicate entry
+      if (error.message.includes("duplicate key")) {
+        return res.status(400).json({
+          success: false,
+          error: "No duplicate entry in same day. Try different day.",
+        });
+      }
       console.error("[health.js] Supabase Insert Error:", error);
       return res.status(400).json({
         success: false,
