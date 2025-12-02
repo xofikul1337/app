@@ -2,7 +2,7 @@
 
 const { createClient } = require("@supabase/supabase-js");
 
-// 🔐 Supabase backend client – uses SERVICE ROLE KEY (backend only, never frontend)
+// 🔐 Supabase backend client – uses SERVICE ROLE KEY (backend only)
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_KEY;
 
@@ -26,12 +26,16 @@ module.exports = async (req, res) => {
   try {
     let body = req.body;
 
-    // 🩺 Vercel edge sometimes does not auto-parse JSON → manual fallback
+    // 🧪 Debug: প্রথমেই log করে দেখি কী আসছে
+    console.log("[health.js] Raw req.body:", JSON.stringify(body));
+
+    // If body not parsed → manual parse fallback
     if (!body || Object.keys(body).length === 0) {
       let raw = "";
       for await (const chunk of req) {
         raw += chunk;
       }
+      console.log("[health.js] Raw stream body:", raw);
       if (raw) {
         try {
           body = JSON.parse(raw);
@@ -45,12 +49,16 @@ module.exports = async (req, res) => {
       }
     }
 
+    console.log("[health.js] Final parsed body:", JSON.stringify(body));
+
     // Support array OR single JSON
     const payload = Array.isArray(body) ? body : [body];
     const rows = [];
 
     for (const item of payload) {
-      // 🔑 Require user_id field from body (uid/id/user_id)
+      console.log("[health.js] Processing item:", JSON.stringify(item));
+
+      // 🔑 Require user_id field from body (user_id / uid / id)
       const userId = item.user_id || item.uid || item.id;
 
       if (!userId) {
@@ -62,7 +70,7 @@ module.exports = async (req, res) => {
       }
 
       rows.push({
-        user_id: userId, // <— Supabase Auth UID
+        user_id: userId,
         date: item.date,
         weight: item.weight,
         body_fat_percentage: item.body_fat_percentage,
@@ -74,7 +82,6 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Insert into Supabase table
     const { data, error } = await supabase.from("health_data").insert(rows);
 
     if (error) {
